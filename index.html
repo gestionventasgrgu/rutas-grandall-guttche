@@ -118,8 +118,8 @@
                     </select>
                 </div>
                 <div class="relative">
-                    <label class="block text-gray-500 mb-1">🔍 Buscar Cliente o Prospecto:</label>
-                    <input type="text" id="input-buscador" placeholder="Escribe nombre o RUT..." oninput="manejarBusquedaTexto()" class="w-full border rounded p-1 bg-white">
+                    <label class="block text-gray-500 mb-1">🔍 Buscar o Seleccionar Cliente de la Ciudad:</label>
+                    <input type="text" id="input-buscador" placeholder="Escribe para buscar o haz clic para ver lista..." onfocus="mostrarListaCiudad()" oninput="manejarBusquedaTexto()" class="w-full border rounded p-1 bg-white">
                     <div id="dropdown-resultados" class="hidden absolute left-0 right-0 bg-white border rounded shadow-lg max-h-48 overflow-y-auto z-50"></div>
                 </div>
                 <div class="mt-1">
@@ -624,42 +624,45 @@
             }
         }
 
+        // Filtra los clientes en el mapa y actualiza el comportamiento por ciudad
         function filtrarClientes() {
             let ciudadSeleccionada = document.getElementById("filtro-ciudad").value.toUpperCase().trim();
-            if(!ciudadSeleccionada) {
-                renderizarClientesEnMapa(clientesGlobales);
-            } else {
-                let filtrados = clientesGlobales.filter(c => (c.ciudad || "").toUpperCase().trim() === ciudadSeleccionada);
-                renderizarClientesEnMapa(filtrados);
+            let clientesAMostrar = clientesGlobales;
+
+            if (ciudadSeleccionada) {
+                clientesAMostrar = clientesGlobales.filter(c => (c.ciudad || "").toUpperCase().trim() === ciudadSeleccionada);
+            }
+
+            renderizarClientesEnMapa(clientesAMostrar);
+            
+            // Si el buscador estaba abierto, actualizar la lista desplegable según la ciudad seleccionada
+            let dropdown = document.getElementById("dropdown-resultados");
+            if (!dropdown.classList.contains("hidden")) {
+                mostrarListaCiudad();
             }
         }
 
-        function manejarBusquedaTexto() {
-            let texto = document.getElementById("input-buscador").value.toLowerCase().trim();
+        // Muestra la lista desplegable de clientes (filtrados por la ciudad seleccionada o todos si no hay filtro)
+        function mostrarListaCiudad() {
+            let ciudadSeleccionada = document.getElementById("filtro-ciudad").value.toUpperCase().trim();
+            let textoBusqueda = document.getElementById("input-buscador").value.toLowerCase().trim();
             let dropdown = document.getElementById("dropdown-resultados");
 
-            if (!texto) {
-                dropdown.classList.add("hidden");
-                dropdown.innerHTML = "";
-                renderizarClientesEnMapa(clientesGlobales);
-                return;
-            }
-
-            let filtrados = clientesGlobales.filter(c => {
+            let listaFiltrada = clientesGlobales.filter(c => {
+                let coincideCiudad = !ciudadSeleccionada || (c.ciudad || "").toUpperCase().trim() === ciudadSeleccionada;
                 let nombre = (c.cliente || "").toLowerCase();
                 let rut = (c.rut || c.id || "").toLowerCase();
-                return nombre.includes(texto) || rut.includes(texto);
+                let coincideTexto = !textoBusqueda || nombre.includes(textoBusqueda) || rut.includes(textoBusqueda);
+                return coincideCiudad && coincideTexto;
             });
 
-            renderizarClientesEnMapa(filtrados);
-
-            // Eliminar duplicados en el dropdown usando un Set basado en el ID/RUT único del cliente
+            // Asegurar registros únicos sin duplicados usando un Map por ID/RUT
             let unicosMap = new Map();
-            filtrados.forEach(c => unicosMap.set(c.id || c.rut, c));
+            listaFiltrada.forEach(c => unicosMap.set(c.id || c.rut, c));
             let listaUnicos = Array.from(unicosMap.values());
 
             if (listaUnicos.length === 0) {
-                dropdown.innerHTML = `<div class="p-2 text-gray-400 text-center">No se encontraron coincidencias</div>`;
+                dropdown.innerHTML = `<div class="p-2 text-gray-400 text-center">No se encontraron clientes en esta ciudad</div>`;
             } else {
                 let html = "";
                 listaUnicos.forEach(c => {
@@ -677,6 +680,30 @@
             }
             dropdown.classList.remove("hidden");
         }
+
+        function manejarBusquedaTexto() {
+            mostrarListaCiudad();
+            let texto = document.getElementById("input-buscador").value.toLowerCase().trim();
+            let ciudadSeleccionada = document.getElementById("filtro-ciudad").value.toUpperCase().trim();
+
+            let filtrados = clientesGlobales.filter(c => {
+                let coincideCiudad = !ciudadSeleccionada || (c.ciudad || "").toUpperCase().trim() === ciudadSeleccionada;
+                let nombre = (c.cliente || "").toLowerCase();
+                let rut = (c.rut || c.id || "").toLowerCase();
+                return coincideCiudad && (nombre.includes(texto) || rut.includes(texto));
+            });
+
+            renderizarClientesEnMapa(filtrados);
+        }
+
+        // Ocultar dropdown al hacer clic fuera
+        document.addEventListener('click', function(e) {
+            let contenedorBuscador = document.getElementById("input-buscador");
+            let dropdown = document.getElementById("dropdown-resultados");
+            if (!contenedorBuscador.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.classList.add("hidden");
+            }
+        });
 
         function abrirModalProspecto() {
             document.getElementById("pros-nombre").value = "";
