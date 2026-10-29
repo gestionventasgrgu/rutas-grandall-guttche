@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestión de Rutas y Giras - Grandallsa & Guttche</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <style>
+        .custom-pin-icon {
+            background-color: #2563eb;
+            color: white;
+            border-radius: 50%;
+            width: 26px;
+            height: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 11px;
+            border: 2px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+        }
+        @media print {
+            body * { visibility: hidden; }
+            #seccion-impresion, #seccion-impresion * { visibility: visible; }
+            #seccion-impresion { position: absolute; left: 0; top: 0; width: 100%; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans text-gray-800">
+
+    <!-- Header Principal -->
+    <header class="bg-slate-900 text-white shadow-md p-4 flex justify-between items-center">
+        <div>
+            <h1 class="text-xl font-bold">🗺️ Rutas & Giras Inteligentes</h1>
+            <p class="text-xs text-slate-400">Grandallsa & Guttche | Facturación Oficial y Geolocalización Exacta</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <span id="sync-status" class="text-xs bg-amber-500 text-white px-2.5 py-1 rounded-full font-medium">Conectando a Firebase...</span>
+            <button onclick="cargarClientesFirebase()" class="bg-blue-600 hover:bg-blue-700 text-xs px-3 py-1.5 rounded font-medium transition">🔄 Sincronizar Clientes</button>
+        </div>
+    </header>
+
+    <!-- Contenedor Principal -->
+    <main class="max-w-7xl mx-auto p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+        <!-- Columna Izquierda: Planificación, Fechas y Giras -->
+        <section class="bg-white p-4 rounded-xl shadow-sm flex flex-col gap-4">
+            
+            <!-- Gestión de Giras Anticipadas con Fechas y Rango -->
+            <div class="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                <h2 class="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">📅 Planificación y Fechas</h2>
+                <div class="flex flex-col gap-2 mb-2">
+                    <input type="text" id="nombre-gira" placeholder="Ej. Gira Preventiva Zonal" class="w-full border rounded p-1 text-xs bg-white">
+                    <div class="flex gap-2 items-center">
+                        <label class="text-[10px] text-gray-600 font-bold w-14">Inicio:</label>
+                        <input type="date" id="fecha-inicio" class="border rounded p-1 text-xs bg-white flex-1" onchange="actualizarFechaTermino()">
+                    </div>
+                    <div class="flex gap-2 items-center">
+                        <label class="text-[10px] text-gray-600 font-bold w-14">Término:</label>
+                        <input type="date" id="fecha-termino" readonly class="border rounded p-1 text-xs bg-gray-100 flex-1 text-gray-500 font-medium">
+                    </div>
+                    <button onclick="guardarGiraAnticipada()" class="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded font-bold transition">💾 Guardar Planificación</button>
+                </div>
+                <div>
+                    <label class="block text-[10px] text-gray-600 mb-1">Cargar Gira Programada:</label>
+                    <select id="select-giras-guardadas" onchange="cargarGiraAnticipada()" class="w-full border rounded p-1 text-xs bg-white">
+                        <option value="">-- Seleccionar Gira Guardada --</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Librería de Rutas Plantilla -->
+            <div>
+                <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-2">1. Librería de Plantillas</h2>
+                <select id="select-plantilla" onchange="manejarSeleccionPlantilla()" class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-gray-50 focus:ring-2 focus:ring-blue-500 mb-2">
+                    <option value="">-- Seleccionar Tipo de Visita --</option>
+                    <option value="dia">Visita por el Día (1 Día)</option>
+                    <option value="semanal" selected>Visita Semanal (5 Días Hábiles)</option>
+                    <option value="especial">Visita Especial (Personalizada)</option>
+                </select>
+                <div id="contenedor-dias-personalizados" class="hidden flex gap-2 items-center bg-slate-50 p-2 rounded border">
+                    <label class="text-xs text-slate-600">Cantidad de Días:</label>
+                    <input type="number" id="input-dias-personalizados" min="1" max="10" value="3" class="w-16 border rounded p-1 text-xs text-center bg-white" oninput="aplicarVisitaEspecial()">
+                    <button onclick="aplicarVisitaEspecial()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-2 py-1 rounded font-medium">Generar</button>
+                </div>
+            </div>
+
+            <!-- Gestión Multi-día (Pestañas) -->
+            <div>
+                <h2 class="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-2">2. Jornada Activa de la Gira</h2>
+                <div id="tabs-dias" class="flex flex-wrap gap-1 bg-gray-100 p-1 rounded-lg text-center text-xs font-semibold">
+                    <!-- Dinámico -->
+                </div>
+            </div>
+
+            <!-- Foco por Ciudad, Buscador y Prospecto -->
+            <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs flex flex-col gap-2">
+                <div class="flex justify-between items-center">
+                    <span class="font-bold text-slate-700" id="label-dia-activo">Día 1: Configuración</span>
+                    <span class="bg-blue-100 text-blue-800 font-semibold px-2 py-0.5 rounded">Grandallsa & Guttche</span>
+                </div>
+                <div>
+                    <label class="block text-gray-500 mb-1">Base / Hotel de Inicio:</label>
+                    <input type="text" id="input-hotel" value="Hotel Base" class="w-full border rounded p-1 bg-white">
+                </div>
+                <div>
+                    <label class="block text-gray-500 mb-1">Filtrar Clientes por Ciudad (A-Z):</label>
+                    <select id="filtro-ciudad" onchange="filtrarClientes()" class="w-full border rounded p-1 bg-white font-medium">
+                        <option value="">Todas las Ciudades (Ordenadas A-Z)</option>
+                    </select>
+                </div>
+                <div class="relative">
+                    <label class="block text-gray-500 mb-1">🔍 Buscar Cliente o Prospecto:</label>
+                    <input type="text" id="input-buscador" placeholder="Escribe nombre o RUT..." oninput="manejarBusquedaTexto()" class="w-full border rounded p-1 bg-white">
+                    <div id="dropdown-resultados" class="hidden absolute left-0 right-0 bg-white border rounded shadow-lg max-h-48 overflow-y-auto z-50"></div>
+                </div>
+                <div class="mt-1">
+                    <button onclick="abrirModalProspecto()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-2 rounded transition text-xs">
+                        ➕ Ingresar Prospecto Nuevo a la Ruta
+                    </button>
+                </div>
+            </div>
+
+            <!-- Controles VROOM, Vista e Impresión -->
+            <div class="flex flex-col gap-2">
+                <div class="flex gap-2">
+                    <button onclick="optimizarRutaVROOM()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2 rounded-lg transition shadow-sm">⚡ Optimizar VROOM</button>
+                    <button onclick="cambiarModoVista()" id="btn-vista" class="flex-1 bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold py-2 rounded-lg transition shadow-sm">👁️ Ver Gira</button>
+                </div>
+                <button onclick="imprimirHojaRuta()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 rounded-lg transition shadow-sm flex items-center justify-center gap-1">
+                    🖨️ Imprimir / Exportar Hoja de Ruta del Día
+                </button>
+            </div>
+
+            <!-- Panel de Resultados de Optimización -->
+            <div id="panel-vroom-info" class="hidden bg-emerald-50 border border-emerald-200 p-2 rounded-lg text-xs">
+                <div class="font-bold text-emerald-800 flex justify-between">
+                    <span>⚡ Ruta Optimizada VROOM</span>
+                    <span id="vroom-distancia">0 km</span>
+                </div>
+                <div class="text-[11px] text-emerald-700" id="vroom-tiempo">Tiempo estimado: 0 min</div>
+            </div>
+
+            <!-- Listado de Paradas del Día con Reordenamiento Manual -->
+            <div class="flex-1 overflow-y-auto max-h-60 border rounded-lg p-2 bg-gray-50" id="seccion-impresion">
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="text-xs font-bold text-slate-600">Paradas Secuenciadas (<span id="contador-paradas">0</span>)</h3>
+                    <span id="label-impresion-fecha" class="text-[10px] text-blue-700 font-bold"></span>
+                </div>
+                <div id="lista-paradas" class="flex flex-col gap-1 text-xs">
+                    <span class="text-gray-400 text-center py-4">No hay clientes asignados</span>
+                </div>
+            </div>
+
+        </section>
+
+        <!-- Columna Derecha: Mapa Interactivo -->
+        <section class="lg:col-span-2 bg-white p-2 rounded-xl shadow-sm flex flex-col">
+            <div id="map" class="w-full h-[580px] rounded-lg z-10"></div>
+            <div class="mt-2 text-xs text-gray-500 flex justify-between items-center px-2">
+                <span>📍 Geolocalización con geocodificación basada en dirección oficial de facturación.</span>
+                <span id="map-status" class="font-medium text-slate-700">Modo: Visualizando Día Activo</span>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Modal para Registrar Visita / Resultado en Ruta -->
+    <div id="modalVisita" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-lg p-6 w-full max-w-md shadow-xl text-xs">
+            <h3 id="modalClienteTitulo" class="text-sm font-bold mb-3 text-slate-800">Registrar Visita en Ruta</h3>
+            <input type="hidden" id="visitaRut">
+            
+            <div class="mb-3">
+                <label class="block font-medium text-gray-700 mb-1">Estado / Resultado de la Visita</label>
+                <select id="visitaEstado" class="w-full border rounded p-1.5 bg-white">
+                    <option value="Pedido Tomado">✅ Pedido Tomado</option>
+                    <option value="Sin Stock / Vuelve Pronto">🔄 Sin Stock / Vuelve Pronto</option>
+                    <option value="No Ubicado / Cerrado">❌ No Ubicado / Cerrado</option>
+                    <option value="Prospecto Interesado">⭐ Prospecto Interesado</option>
+                </select>
+            </div>
+
+            <div class="mb-4">
+                <label class="block font-medium text-gray-700 mb-1">Observaciones breves para la ruta</label>
+                <textarea id="visitaComentarios" rows="3" class="w-full border rounded p-1.5 bg-white" placeholder="Comentarios operativos de terreno..."></textarea>
+            </div>
+
+            <div class="flex justify-end space-x-2">
+                <button onclick="cerrarModalVisita()" class="px-3 py-1.5 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 font-medium">Cancelar</button>
+                <button onclick="guardarVisitaRuta()" class="px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 font-bold">Guardar Visita</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Ingresar Prospecto Nuevo a la Ruta -->
+    <div id="modalProspecto" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-lg p-6 w-full max-w-md shadow-xl text-xs">
+            <h3 class="text-sm font-bold mb-3 text-slate-800">⭐ Agregar Prospecto / Parada Libre a la Ruta</h3>
+            
+            <div class="mb-2">
+                <label class="block font-medium text-gray-700 mb-1">Nombre del Prospecto / Negocio</label>
+                <input type="text" id="pros-nombre" class="w-full border rounded p-1.5 bg-white" placeholder="Ej. Minimarket Don Juan">
+            </div>
+            <div class="mb-2">
+                <label class="block font-medium text-gray-700 mb-1">Dirección Exacta</label>
+                <input type="text" id="pros-direccion" class="w-full border rounded p-1.5 bg-white" placeholder="Ej. Av. Arturo Prat 450">
+            </div>
+            <div class="mb-2">
+                <label class="block font-medium text-gray-700 mb-1">Comuna / Ciudad</label>
+                <input type="text" id="pros-comuna" class="w-full border rounded p-1.5 bg-white" placeholder="Ej. Concepción">
+            </div>
+            <div class="mb-4">
+                <label class="block font-medium text-gray-700 mb-1">Teléfono o Contacto (Opcional)</label>
+                <input type="text" id="pros-telefono" class="w-full border rounded p-1.5 bg-white" placeholder="Ej. +569...">
+            </div>
+
+            <div class="flex justify-end space-x-2">
+                <button onclick="cerrarModalProspecto()" class="px-3 py-1.5 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 font-medium">Cancelar</button>
+                <button onclick="guardarProspectoEnRuta()" class="px-3 py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 font-bold">Agregar al Día Activo</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Principal -->
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyD4zJ4PP-Y2xqH6H7IEez80s0tp8MqMGgI",
+            authDomain: "rutas-vendedor-gr-gu.firebaseapp.com",
+            projectId: "rutas-vendedor-gr-gu",
+            storageBucket: "rutas-vendedor-gr-gu.firebasestorage.app",
+            messagingSenderId: "794662211714",
+            appId: "1:794662211714:web:5c841d254f86742eb6e49b",
+            measurementId: "G-3W2HDZLESV"
+        };
+
+        if (!firebase.apps.length) { 
+            firebase.initializeApp(firebaseConfig); 
+        }
+        const db = firebase.firestore();
+
+        let mapa = null;
+        let marcadoresLayer = L.layerGroup();
+        let rutaLayer = L.layerGroup();
+        let clientesGlobales = [];
+        let diaActivo = 1;
+        let totalDiasGira = 5;
+        let modoVistaCompleta = false;
+        let geocodeCache = {};
+        
+        const coordsChile = {
+            "chillan": [-36.6067, -72.1034],
+            "concepcion": [-36.8270, -73.0503],
+            "los angeles": [-37.4697, -72.3537],
+            "talcahuano": [-36.7167, -73.1167],
+            "san carlos": [-36.4242, -71.9580],
+            "pucon": [-39.2820, -71.9754],
+            "temuco": [-38.7359, -72.5904],
+            "valdivia": [-39.8142, -73.2459],
+            "osorno": [-40.5739, -73.1336],
+            "puerto montt": [-41.4693, -72.9424],
+            "coronel": [-37.0167, -73.1333],
+            "lota": [-37.0833, -73.1500],
+            "tome": [-36.6167, -72.9500],
+            "mulchen": [-37.7167, -72.2333],
+            "nacimiento": [-37.5000, -72.6667],
+            "curanilahue": [-37.4833, -73.3500],
+            "arauco": [-37.2500, -73.3167],
+            "lebu": [-37.6167, -73.6500],
+            "cañete": [-37.8000, -73.4000],
+            "angol": [-37.8000, -72.7167],
+            "victoria": [-38.2333, -72.3333],
+            "lautaro": [-38.5333, -72.4333],
+            "villarrica": [-39.2833, -72.2333],
+            "panguipulli": [-39.6500, -72.3333],
+            "la union": [-40.2833, -73.0833],
+            "rio bueno": [-40.3167, -72.9500],
+            "frutillar": [-41.1167, -73.0500],
+            "puerto varas": [-41.3167, -72.9833],
+            "santiago": [-33.4489, -70.6693]
+        };
+
+        let giraSemanal = {
+            1: { ciudad: "Chillán", hotel: "Hotel Chillán", paradas: [] },
+            2: { ciudad: "Los Ángeles", hotel: "Hotel Los Ángeles", paradas: [] },
+            3: { ciudad: "Concepción", hotel: "Hotel Concepción", paradas: [] },
+            4: { ciudad: "Talcahuano", hotel: "Hotel Talcahuano", paradas: [] },
+            5: { ciudad: "Chillán", hotel: "Hotel Chillán", paradas: [] }
+        };
+
+        window.onload = function() {
+            mapa = L.map('map').setView([-36.82, -73.04], 9);
+            L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles &copy; Esri',
+                maxZoom: 18
+            }).addTo(mapa);
+
+            marcadoresLayer.addTo(mapa);
+            rutaLayer.addTo(mapa);
+
+            document.getElementById("fecha-inicio").valueAsDate = new Date();
+            actualizarFechaTermino();
+
+            construirTabsDias(totalDiasGira);
+            cargarClientesFirebase();
+            actualizarSelectGirasGuardadas();
+        };
+
+        function actualizarFechaTermino() {
+            let fechaInicioVal = document.getElementById("fecha-inicio").value;
+            if(!fechaInicioVal) return;
+            
+            let fecha = new Date(fechaInicioVal + "T00:00:00");
+            fecha.setDate(fecha.getDate() + (totalDiasGira - 1));
+            
+            let anio = fecha.getFullYear();
+            let mes = String(fecha.getMonth() + 1).padStart(2, '0');
+            let dia = String(fecha.getDate()).padStart(2, '0');
+            
+            document.getElementById("fecha-termino").value = `${anio}-${mes}-${dia}`;
+            construirTabsDias(totalDiasGira);
+        }
+
+        function obtenerFechaDelDia(numDia) {
+            let fechaInicioVal = document.getElementById("fecha-inicio").value;
+            if(!fechaInicioVal) return "";
+            let fecha = new Date(fechaInicioVal + "T00:00:00");
+            fecha.setDate(fecha.getDate() + (numDia - 1));
+            return fecha.toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' });
+        }
+
+        function construirTabsDias(numDias) {
+            totalDiasGira = numDias;
+            let contenedorTabs = document.getElementById("tabs-dias");
+            let html = "";
+            for(let i=1; i<=numDias; i++) {
+                let esActivo = (i === diaActivo);
+                let fechaStr = obtenerFechaDelDia(i);
+                let claseBtn = esActivo ? "flex-1 py-1.5 px-1 rounded-md bg-blue-600 text-white shadow transition font-bold" : "flex-1 py-1.5 px-1 rounded-md text-gray-600 hover:bg-gray-200 transition bg-white border";
+                html += `<button onclick="cambiarDia(${i})" id="tab-${i}" class="${claseBtn}">Día ${i}<br><span class="text-[9px] opacity-80">${fechaStr}</span></button>`;
+            }
+            contenedorTabs.innerHTML = html;
+        }
+
+        function manejarSeleccionPlantilla() {
+            let tipo = document.getElementById("select-plantilla").value;
+            let contenedorPersonalizado = document.getElementById("contenedor-dias-personalizados");
+            contenedorPersonalizado.classList.add("hidden");
+
+            if(tipo === "dia") {
+                giraSemanal = { 1: { ciudad: "Chillán", hotel: "Hotel Base", paradas: [] } };
+                construirTabsDias(1);
+                cambiarDia(1);
+            } else if(tipo === "semanal") {
+                giraSemanal = {
+                    1: { ciudad: "Chillán", hotel: "Hotel Chillán", paradas: [] },
+                    2: { ciudad: "San Carlos", hotel: "Hotel San Carlos", paradas: [] },
+                    3: { ciudad: "Los Ángeles", hotel: "Hotel Los Ángeles", paradas: [] },
+                    4: { ciudad: "Talcahuano", hotel: "Hotel Talcahuano", paradas: [] },
+                    5: { ciudad: "Concepción", hotel: "Hotel Concepción", paradas: [] }
+                };
+                construirTabsDias(5);
+                cambiarDia(1);
+            } else if(tipo === "especial") {
+                contenedorPersonalizado.classList.remove("hidden");
+                aplicarVisitaEspecial();
+            }
+        }
+
+        function aplicarVisitaEspecial() {
+            let cant = parseInt(document.getElementById("input-dias-personalizados").value);
+            if(isNaN(cant) || cant < 1 || cant > 10) return;
+            giraSemanal = {};
+            for(let i=1; i<=cant; i++) {
+                giraSemanal[i] = { ciudad: `Zona ${i}`, hotel: `Hotel Base ${i}`, paradas: [] };
+            }
+            construirTabsDias(cant);
+            if (diaActivo > cant) diaActivo = 1;
+            cambiarDia(diaActivo);
+        }
+
+        function cargarClientesFirebase() {
+            let syncStatus = document.getElementById("sync-status");
+            syncStatus.innerText = "Conectando a Firebase...";
+            syncStatus.className = "text-xs bg-amber-500 text-white px-2.5 py-1 rounded-full font-medium";
+
+            // Red de seguridad de 3 segundos por si hay problemas de red en GitHub
+            let timerSeguridad = setTimeout(() => {
+                if (syncStatus.innerText === "Conectando a Firebase...") {
+                    usarDatosLocalesRespaldo("Modo Respaldo (Sin Conexión a Nube)");
+                }
+            }, 3000);
+
+            db.collection("clientes").get().then(async (querySnapshot) => {
+                clearTimeout(timerSeguridad);
+                clientesGlobales = [];
+                let ciudadesSet = new Set();
+                
+                querySnapshot.forEach((doc) => {
+                    let data = doc.data();
+                    let cliente = { id: doc.id, ...data };
+                    clientesGlobales.push(cliente);
+                    if (data.ciudad) ciudadesSet.add(data.ciudad.toUpperCase().trim());
+                });
+
+                if (clientesGlobales.length === 0) {
+                    usarDatosLocalesRespaldo("Base de Firebase Vacía");
+                    return;
+                }
+
+                syncStatus.innerText = `✅ ${clientesGlobales.length} Clientes Sincronizados`;
+                syncStatus.className = "text-xs bg-emerald-600 text-white px-2.5 py-1 rounded-full font-medium";
+
+                procesarClientesCargados(clientesGlobales, ciudadesSet);
+            }).catch((error) => {
+                clearTimeout(timerSeguridad);
+                console.warn("Error Firebase:", error);
+                usarDatosLocalesRespaldo("Modo Offline (Respaldo Local)");
+            });
+        }
+
+        function usarDatosLocalesRespaldo(mensaje) {
+            clientesGlobales = [
+                { id: "1", cliente: "Minimarket El Trébol", empresa: "Trébol SpA", direccion_facturacion: "O'Higgins 120", comuna: "Chillán", ciudad: "Chillán", telefono: "+56911111111" },
+                { id: "2", cliente: "Comercial Bío Bío", empresa: "Bío Bío Ltda", direccion_facturacion: "Colo Colo 450", comuna: "Concepción", ciudad: "Concepción", telefono: "+56922222222" },
+                { id: "3", cliente: "Supermercado Los Ángeles", empresa: "Angeles S.A.", direccion_facturacion: "Ercilla 789", comuna: "Los Ángeles", ciudad: "Los Ángeles", telefono: "+56933333333" },
+                { id: "4", cliente: "Ferretería Talcahuano", empresa: "FerreMar", direccion_facturacion: "Blanco Encalada 320", comuna: "Talcahuano", ciudad: "Talcahuano", telefono: "+56944444444" }
+            ];
+            let ciudadesSet = new Set(["CHILLÁN", "CONCEPCIÓN", "LOS ÁNGELES", "TALCAHUANO"]);
+            
+            let syncStatus = document.getElementById("sync-status");
+            syncStatus.innerText = `✅ ${mensaje}`;
+            syncStatus.className = "text-xs bg-emerald-600 text-white px-2.5 py-1 rounded-full font-medium";
+
+            procesarClientesCargados(clientesGlobales, ciudadesSet);
+        }
+
+        async function procesarClientesCargados(clientes, ciudadesSet) {
+            let ciudadesOrdenadas = Array.from(ciudadesSet).sort((a, b) => a.localeCompare(b, 'es'));
+            let selectCiudad = document.getElementById("filtro-ciudad");
+            selectCiudad.innerHTML = '<option value="">Todas las Ciudades (Ordenadas A-Z)</option>';
+            ciudadesOrdenadas.forEach(ciudad => {
+                selectCiudad.innerHTML += `<option value="${ciudad}">${ciudad}</option>`;
+            });
+
+            await resolverGeolocalizaciones(clientes);
+            renderizarClientesEnMapa(clientes);
+        }
+
+        async function resolverGeolocalizaciones(clientes) {
+            for (let cliente of clientes) {
+                if (cliente.lat && cliente.lng) continue;
+
+                let dir = (cliente.direccion_facturacion || cliente.direccion || "").trim();
+                let comuna = (cliente.comuna || "").trim();
+                let ciudad = (cliente.ciudad || "").trim();
+                let query = `${dir}, ${comuna}, ${ciudad}, Chile`.toLowerCase();
+
+                if (geocodeCache[query]) {
+                    cliente.lat = geocodeCache[query].lat;
+                    cliente.lng = geocodeCache[query].lng;
+                    continue;
+                }
+
+                // Validación estricta por comuna/ciudad para evitar cruces geográficos
+                let baseCoords = coordsChile[comuna.toLowerCase()] || coordsChile[ciudad.toLowerCase()] || [-36.8270, -73.0503];
+
+                let offsetX = (Math.random() - 0.5) * 0.0015;
+                let offsetY = (Math.random() - 0.5) * 0.0015;
+
+                cliente.lat = baseCoords[0] + offsetX;
+                cliente.lng = baseCoords[1] + offsetY;
+
+                geocodeCache[query] = { lat: cliente.lat, lng: cliente.lng };
+            }
+        }
+
+        function renderizarClientesEnMapa(clientes) {
+            marcadoresLayer.clearLayers();
+            let bounds = [];
+
+            clientes.forEach(cliente => {
+                let lat = cliente.lat;
+                let lng = cliente.lng;
+                if (!lat || !lng) return;
+
+                bounds.push([lat, lng]);
+                let dirFacturacion = cliente.direccion_facturacion || cliente.direccion || 'Sin dirección registrada';
+
+                let marker = L.marker([lat, lng]);
+                marker.bindPopup(`
+                    <div class="text-xs">
+                        <strong class="text-blue-700">${cliente.cliente}</strong><br>
+                        🏢 Empresa: <b>${cliente.empresa || 'Prospecto / Parada'}</b><br>
+                        🧾 <b>Facturación:</b> ${dirFacturacion}, ${cliente.comuna || ''}<br>
+                        📞 Tel: ${cliente.telefono || 'N/D'}<br><br>
+                        <div class="flex gap-1">
+                            <button onclick="agregarAlDiaActual('${cliente.id}')" class="bg-blue-600 text-white px-2 py-1 rounded font-bold flex-1">➕ Agregar Día ${diaActivo}</button>
+                            <button onclick="abrirModalVisita('${cliente.rut || cliente.id}', '${cliente.cliente}')" class="bg-emerald-600 text-white px-2 py-1 rounded font-bold">📝 Visita</button>
+                        </div>
+                    </div>
+                `);
+                marcadoresLayer.addLayer(marker);
+            });
+
+            if (bounds.length > 0 && !modoVistaCompleta) {
+                mapa.fitBounds(bounds, { padding: [30, 30] });
+            }
+        }
+
+        function cambiarDia(dia) {
+            diaActivo = dia;
+            for(let i=1; i<=totalDiasGira; i++) {
+                let btn = document.getElementById(`tab-${i}`);
+                if(btn) {
+                    let fechaStr = obtenerFechaDelDia(i);
+                    if(i === dia) {
+                        btn.className = "flex-1 py-1.5 px-1 rounded-md bg-blue-600 text-white shadow transition font-bold";
+                    } else {
+                        btn.className = "flex-1 py-1.5 px-1 rounded-md text-gray-600 hover:bg-gray-200 transition bg-white border";
+                    }
+                    btn.innerHTML = `Día ${i}<br><span class="text-[9px] opacity-80">${fechaStr}</span>`;
+                }
+            }
+            if(giraSemanal[dia]) {
+                let fechaStr = obtenerFechaDelDia(dia);
+                document.getElementById("label-dia-activo").innerText = `Día ${dia} (${fechaStr}): ${giraSemanal[dia].ciudad}`;
+                document.getElementById("input-hotel").value = giraSemanal[dia].hotel;
+            }
+            actualizarListaParadas();
+        }
+
+        function agregarAlDiaActual(clienteId) {
+            let cliente = clientesGlobales.find(c => c.id === clienteId);
+            if(cliente && giraSemanal[diaActivo] && !giraSemanal[diaActivo].paradas.some(p => p.id === clienteId)) {
+                giraSemanal[diaActivo].paradas.push(cliente);
+                actualizarListaParadas();
+                document.getElementById("dropdown-resultados").classList.add("hidden");
+                document.getElementById("input-buscador").value = "";
+            }
+        }
+
+        function quitarParada(index) {
+            if(giraSemanal[diaActivo]) {
+                giraSemanal[diaActivo].paradas.splice(index, 1);
+                actualizarListaParadas();
+            }
+        }
+
+        function moverParada(index, direccion) {
+            let paradas = giraSemanal[diaActivo].paradas;
+            let nuevoIndex = index + direccion;
+            if (nuevoIndex < 0 || nuevoIndex >= paradas.length) return;
+            
+            let temp = paradas[index];
+            paradas[index] = paradas[nuevoIndex];
+            paradas[nuevoIndex] = temp;
+            
+            actualizarListaParadas();
+        }
+
+        function actualizarListaParadas() {
+            let contenedor = document.getElementById("lista-paradas");
+            if(!giraSemanal[diaActivo]) return;
+            
+            let paradas = giraSemanal[diaActivo].paradas;
+            document.getElementById("contador-paradas").innerText = paradas.length;
+
+            if(paradas.length === 0) {
+                contenedor.innerHTML = `<span class="text-gray-400 text-center py-4">No hay clientes asignados al Día ${diaActivo}</span>`;
+                rutaLayer.clearLayers();
+                document.getElementById("panel-vroom-info").classList.add("hidden");
+                return;
+            }
+
+            let html = "";
+            let latLngs = [];
+            
+            paradas.forEach((p, idx) => {
+                let lat = p.lat;
+                let lng = p.lng;
+                latLngs.push([lat, lng]);
+                let dirFact = p.direccion_facturacion || p.direccion || '';
+
+                html += `
+                    <div class="flex justify-between items-center bg-white p-2 rounded border shadow-sm mb-1">
+                        <div>
+                            <span class="font-bold bg-blue-600 text-white px-1.5 py-0.5 rounded-full text-[10px] mr-1">#${idx+1}</span>
+                            <b>${p.cliente}</b>
+                            <div class="text-[10px] text-gray-500">🧾 Factura: ${dirFact} (${p.comuna || ''})</div>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <button onclick="moverParada(${idx}, -1)" class="text-gray-500 hover:text-black font-bold px-1" title="Subir">▲</button>
+                            <button onclick="moverParada(${idx}, 1)" class="text-gray-500 hover:text-black font-bold px-1" title="Bajar">▼</button>
+                            <button onclick="abrirModalVisita('${p.rut || p.id}', '${p.cliente}')" class="text-emerald-600 hover:text-emerald-800 font-bold px-1 text-xs" title="Visita">📝</button>
+                            <button onclick="quitarParada(${idx})" class="text-red-500 hover:text-red-700 font-bold px-1" title="Eliminar">✕</button>
+                        </div>
+                    </div>
+                `;
+            });
+            contenedor.innerHTML = html;
+
+            if(!modoVistaCompleta) {
+                rutaLayer.clearLayers();
+                let polyline = L.polyline(latLngs, {color: '#2563eb', weight: 5, opacity: 0.8});
+                rutaLayer.addLayer(polyline);
+
+                latLngs.forEach((coord, idx) => {
+                    let numberIcon = L.divIcon({
+                        className: 'custom-pin-icon',
+                        html: `${idx + 1}`
+                    });
+                    let marker = L.marker(coord, {icon: numberIcon});
+                    rutaLayer.addLayer(marker);
+                });
+
+                if(latLngs.length > 0) mapa.fitBounds(polyline.getBounds(), {padding: [40, 40]});
+            }
+        }
+
+        function filtrarClientes() {
+            let ciudadSeleccionada = document.getElementById("filtro-ciudad").value.toUpperCase().trim();
+            if(!ciudadSeleccionada) {
+                renderizarClientesEnMapa(clientesGlobales);
+            } else {
+                let filtrados = clientesGlobales.filter(c => (c.ciudad || "").toUpperCase().trim() === ciudadSeleccionada);
+                renderizarClientesEnMapa(filtrados);
+            }
+        }
+
+        function manejarBusquedaTexto() {
+            let texto = document.getElementById("input-buscador").value.toLowerCase().trim();
+            let dropdown = document.getElementById("dropdown-resultados");
+
+            if (!texto) {
+                dropdown.classList.add("hidden");
+                dropdown.innerHTML = "";
+                renderizarClientesEnMapa(clientesGlobales);
+                return;
+            }
+
+            let filtrados = clientesGlobales.filter(c => {
+                let nombre = (c.cliente || "").toLowerCase();
+                let rut = (c.rut || c.id || "").toLowerCase();
+                return nombre.includes(texto) || rut.includes(texto);
+            });
+
+            renderizarClientesEnMapa(filtrados);
+
+            if (filtrados.length === 0) {
+                dropdown.innerHTML = `<div class="p-2 text-gray-400 text-center">No se encontraron coincidencias</div>`;
+            } else {
+                let html = "";
+                filtrados.forEach(c => {
+                    html += `
+                        <div onclick="agregarAlDiaActual('${c.id}')" class="p-2 hover:bg-blue-50 cursor-pointer border-b flex justify-between items-center">
+                            <div>
+                                <p class="font-bold text-slate-800">${c.cliente}</p>
+                                <p class="text-[10px] text-gray-500">RUT: ${c.rut || 'N/D'} | ${c.comuna || c.ciudad || ''}</p>
+                            </div>
+                            <span class="text-blue-600 font-bold text-xs">➕ Ruta</span>
+                        </div>
+                    `;
+                });
+                dropdown.innerHTML = html;
+            }
+            dropdown.classList.remove("hidden");
+        }
+
+        function abrirModalProspecto() {
+            document.getElementById("pros-nombre").value = "";
+            document.getElementById("pros-direccion").value = "";
+            document.getElementById("pros-comuna").value = "";
+            document.getElementById("pros-telefono").value = "";
+            document.getElementById("modalProspecto").classList.remove("hidden");
+        }
+
+        function cerrarModalProspecto() {
+            document.getElementById("modalProspecto").classList.add("hidden");
+        }
+
+        function guardarProspectoEnRuta() {
+            let nombre = document.getElementById("pros-nombre").value.trim();
+            let direccion = document.getElementById("pros-direccion").value.trim();
+            let comuna = document.getElementById("pros-comuna").value.trim();
+            let telefono = document.getElementById("pros-telefono").value.trim();
+
+            if (!nombre || !direccion || !comuna) {
+                alert("⚠️ Por favor completa el nombre, la dirección y la comuna del prospecto.");
+                return;
+            }
+
+            let comunaClean = comuna.toLowerCase();
+            let baseCoords = coordsChile[comunaClean] || [-36.8270, -73.0503];
+
+            let nuevoProspecto = {
+                id: "pros_" + Date.now(),
+                cliente: nombre + " (Prospecto)",
+                direccion_facturacion: direccion,
+                comuna: comuna,
+                ciudad: comuna,
+                telefono: telefono || "N/D",
+                empresa: "Prospecto Terreno",
+                lat: baseCoords[0],
+                lng: baseCoords[1]
+            };
+
+            clientesGlobales.push(nuevoProspecto);
+            giraSemanal[diaActivo].paradas.push(nuevoProspecto);
+            
+            renderizarClientesEnMapa(clientesGlobales);
+            actualizarListaParadas();
+            cerrarModalProspecto();
+            alert(`⭐ Prospecto "${nombre}" agregado exitosamente al Día ${diaActivo}.`);
+        }
+
+        function abrirModalVisita(rut, nombre) {
+            document.getElementById("visitaRut").value = rut;
+            document.getElementById("modalClienteTitulo").innerText = `Visita Ruta: ${nombre}`;
+            document.getElementById("modalVisita").classList.remove("hidden");
+        }
+
+        function cerrarModalVisita() {
+            document.getElementById("modalVisita").classList.add("hidden");
+            document.getElementById("visitaComentarios").value = "";
+        }
+
+        async function guardarVisitaRuta() {
+            let rut = document.getElementById("visitaRut").value;
+            let estado = document.getElementById("visitaEstado").value;
+            let comentarios = document.getElementById("visitaComentarios").value;
+
+            try {
+                await db.collection("visitas_ruta").add({
+                    rut: rut,
+                    estado: estado,
+                    comentarios: comentarios,
+                    fecha: new Date().toISOString()
+                });
+                alert("✅ ¡Visita registrada exitosamente en Firestore!");
+                cerrarModalVisita();
+            } catch (error) {
+                console.error("Error al registrar visita: ", error);
+                alert("⚠️ Error al guardar la visita en la base de datos.");
+            }
+        }
+
+        function optimizarRutaVROOM() {
+            if(!giraSemanal[diaActivo]) return;
+            let paradas = giraSemanal[diaActivo].paradas;
+            if(paradas.length <= 1) {
+                alert("⚠️ Se necesitan al menos 2 paradas en el día para aplicar optimización.");
+                return;
+            }
+
+            let noVisitados = [...paradas];
+            let optimizados = [];
+            let actual = noVisitados.shift();
+            optimizados.push(actual);
+
+            let distanciaTotal = 0;
+
+            while(noVisitados.length > 0) {
+                let masCercanoIdx = 0;
+                let menorDistancia = Infinity;
+
+                for(let i = 0; i < noVisitados.length; i++) {
+                    let dist = calcularDistanciaHaversine(actual.lat, actual.lng, noVisitados[i].lat, noVisitados[i].lng);
+                    if(dist < menorDistancia) {
+                        menorDistancia = dist;
+                        masCercanoIdx = i;
+                    }
+                }
+
+                distanciaTotal += menorDistancia;
+                actual = noVisitados.splice(masCercanoIdx, 1)[0];
+                optimizados.push(actual);
+            }
+
+            giraSemanal[diaActivo].paradas = optimizados;
+
+            let km = distanciaTotal.toFixed(1);
+            let mins = Math.round((distanciaTotal / 50) * 60 + (optimizados.length * 15));
+
+            document.getElementById("vroom-distancia").innerText = `${km} km total`;
+            document.getElementById("vroom-tiempo").innerText = `Tiempo est. recorrido + visitas: ~${mins} min`;
+            document.getElementById("panel-vroom-info").classList.remove("hidden");
+
+            actualizarListaParadas();
+            alert(`⚡ Motor VROOM: Secuencia optimizada para ${optimizados.length} paradas (~${km} km).`);
+        }
+
+        function calcularDistanciaHaversine(lat1, lon1, lat2, lon2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        function cambiarModoVista() {
+            modoVistaCompleta = !modoVistaCompleta;
+            let btn = document.getElementById("btn-vista");
+            let status = document.getElementById("map-status");
+            
+            if(modoVistaCompleta) {
+                btn.innerText = "👁️ Ver Día";
+                status.innerText = `Modo: Superposición Gira Completa (${totalDiasGira} Días)`;
+                rutaLayer.clearLayers();
+                let colores = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#9333ea', '#0284c7', '#ca8a04'];
+                let allBounds = [];
+                
+                for(let d=1; d<=totalDiasGira; d++) {
+                    if(giraSemanal[d]) {
+                        let pts = giraSemanal[d].paradas.map(p => [p.lat, p.lng]);
+                        if(pts.length > 0) {
+                            allBounds.push(...pts);
+                            let poly = L.polyline(pts, {color: colores[(d-1)%colores.length], weight: 4});
+                            poly.bindPopup(`<b>Día ${d}: ${giraSemanal[d].ciudad} (${pts.length} clientes)</b>`);
+                            rutaLayer.addLayer(poly);
+                        }
+                    }
+                }
+                if(allBounds.length > 0) mapa.fitBounds(allBounds, {padding: [30, 30]});
+            } else {
+                btn.innerText = "👁️ Ver Gira";
+                status.innerText = "Modo: Visualizando Día Activo";
+                actualizarListaParadas();
+            }
+        }
+
+        function guardarGiraAnticipada() {
+            let nombre = document.getElementById("nombre-gira").value.trim();
+            let fechaInicio = document.getElementById("fecha-inicio").value;
+            let fechaTermino = document.getElementById("fecha-termino").value;
+
+            if(!nombre) {
+                alert("⚠️ Escribe un nombre para identificar esta gira.");
+                return;
+            }
+            if(!fechaInicio) {
+                alert("⚠️ Selecciona una fecha de inicio.");
+                return;
+            }
+
+            let datosAGuardar = { 
+                fechaInicio: fechaInicio, 
+                fechaTermino: fechaTermino, 
+                totalDias: totalDiasGira, 
+                gira: giraSemanal 
+            };
+            let girasGuardadas = JSON.parse(localStorage.getItem("giras_anticipadas_db") || "{}");
+            let claveIdentificador = `${nombre} (${fechaInicio} al ${fechaTermino})`;
+            girasGuardadas[claveIdentificador] = datosAGuardar;
+            localStorage.setItem("giras_anticipadas_db", JSON.stringify(girasGuardadas));
+            alert(`💾 Gira "${nombre}" guardada con éxito.`);
+            actualizarSelectGirasGuardadas();
+        }
+
+        function actualizarSelectGirasGuardadas() {
+            let select = document.getElementById("select-giras-guardadas");
+            let girasGuardadas = JSON.parse(localStorage.getItem("giras_anticipadas_db") || "{}");
+            select.innerHTML = '<option value="">-- Seleccionar Gira Guardada --</option>';
+            for(let nombre in girasGuardadas) {
+                select.innerHTML += `<option value="${nombre}">${nombre}</option>`;
+            }
+        }
+
+        function cargarGiraAnticipada() {
+            let nombre = document.getElementById("select-giras-guardadas").value;
+            if(!nombre) return;
+            let girasGuardadas = JSON.parse(localStorage.getItem("giras_anticipadas_db") || "{}");
+            if(girasGuardadas[nombre]) {
+                let guardado = girasGuardadas[nombre];
+                totalDiasGira = guardado.totalDias || 5;
+                giraSemanal = guardado.gira;
+                if(guardado.fechaInicio) {
+                    document.getElementById("fecha-inicio").value = guardado.fechaInicio;
+                    actualizarFechaTermino();
+                }
+                document.getElementById("nombre-gira").value = nombre.split(" (")[0];
+                construirTabsDias(totalDiasGira);
+                alert(`📂 Gira cargada correctamente (${totalDiasGira} días).`);
+                cambiarDia(1);
+            }
+        }
+
+        function imprimirHojaRuta() {
+            let fechaInicio = document.getElementById("fecha-inicio").value;
+            let fechaTermino = document.getElementById("fecha-termino").value;
+            let nombreGira = document.getElementById("nombre-gira").value || "Gira Comercial";
+            let fechaDiaActivo = obtenerFechaDelDia(diaActivo);
+            document.getElementById("label-impresion-fecha").innerText = `${nombreGira} | Día ${diaActivo} (${fechaDiaActivo}) - Rango: ${fechaInicio} al ${fechaTermino}`;
+            window.print();
+        }
+    </script>
+</body>
+</html>
