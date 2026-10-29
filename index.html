@@ -392,7 +392,6 @@
             syncStatus.innerText = "Conectando a Firebase...";
             syncStatus.className = "text-xs bg-amber-500 text-white px-2.5 py-1 rounded-full font-medium";
 
-            // Red de seguridad de 3 segundos por si hay problemas de red en GitHub
             let timerSeguridad = setTimeout(() => {
                 if (syncStatus.innerText === "Conectando a Firebase...") {
                     usarDatosLocalesRespaldo("Modo Respaldo (Sin Conexión a Nube)");
@@ -470,7 +469,6 @@
                     continue;
                 }
 
-                // Validación estricta por comuna/ciudad para evitar cruces geográficos
                 let baseCoords = coordsChile[comuna.toLowerCase()] || coordsChile[ciudad.toLowerCase()] || [-36.8270, -73.0503];
 
                 let offsetX = (Math.random() - 0.5) * 0.0015;
@@ -655,11 +653,16 @@
 
             renderizarClientesEnMapa(filtrados);
 
-            if (filtrados.length === 0) {
+            // Eliminar duplicados en el dropdown usando un Set basado en el ID/RUT único del cliente
+            let unicosMap = new Map();
+            filtrados.forEach(c => unicosMap.set(c.id || c.rut, c));
+            let listaUnicos = Array.from(unicosMap.values());
+
+            if (listaUnicos.length === 0) {
                 dropdown.innerHTML = `<div class="p-2 text-gray-400 text-center">No se encontraron coincidencias</div>`;
             } else {
                 let html = "";
-                filtrados.forEach(c => {
+                listaUnicos.forEach(c => {
                     html += `
                         <div onclick="agregarAlDiaActual('${c.id}')" class="p-2 hover:bg-blue-50 cursor-pointer border-b flex justify-between items-center">
                             <div>
